@@ -1,0 +1,341 @@
+<Window x:Class="VideoPlayer.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vlc="clr-namespace:LibVLCSharp.WPF;assembly=LibVLCSharp.WPF"
+        Title="נגן וידאו" Height="720" Width="1280" MinWidth="800" MinHeight="500"
+        WindowStartupLocation="CenterScreen"
+        AllowDrop="True"
+        PreviewKeyDown="Window_PreviewKeyDown"
+        DragOver="Window_DragOver"
+        Drop="Window_Drop"
+        Closed="Window_Closed">
+    <Window.Resources>
+        <Style TargetType="TreeViewItem" BasedOn="{StaticResource {x:Type TreeViewItem}}">
+            <EventSetter Event="Expanded" Handler="FolderTree_Expanded"/>
+        </Style>
+
+        <DataTemplate x:Key="PlaylistItemTemplate">
+            <Grid Margin="2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal">
+                    <Grid Width="64" Height="36" Margin="0,0,8,0" ClipToBounds="True">
+                        <Border Background="#33808080" CornerRadius="3"/>
+                        <Image Source="{Binding Thumbnail}" Stretch="UniformToFill"/>
+                        <TextBlock Text="{Binding FallbackGlyph}" FontSize="16" Opacity="0.7"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Thumbnail}" Value="{x:Null}">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Grid>
+                    <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+                <Button Grid.Column="1" Content="−" Width="24" Height="24" Margin="6,0,0,0" Focusable="False"
+                        ToolTip="הסר מרשימת ההשמעה" Click="RemovePlaylistItem_Click"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+            </Grid>
+        </DataTemplate>
+
+        <DataTemplate x:Key="RecentItemTemplate">
+            <StackPanel Orientation="Horizontal" Margin="2">
+                <Image Source="{Binding Icon}" Width="16" Height="16" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                <StackPanel>
+                    <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Text="{Binding ResumeText}" FontSize="11" Opacity="0.7"/>
+                </StackPanel>
+            </StackPanel>
+        </DataTemplate>
+
+        <DataTemplate x:Key="ExplorerItemTemplate">
+            <Grid Margin="2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal">
+                    <Image Source="{Binding Icon}" Width="20" Height="20" Margin="0,0,6,0"/>
+                    <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center"/>
+                </StackPanel>
+                <Button Grid.Column="1" Width="24" Height="24" Margin="6,0,0,0" Focusable="False"
+                        Click="ToggleQueueItem_Click"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                            <Setter Property="Content" Value="+"/>
+                            <Setter Property="ToolTip" Value="הוסף לרשימת ההשמעה"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsQueued}" Value="True">
+                                    <Setter Property="Content" Value="−"/>
+                                    <Setter Property="ToolTip" Value="הסר מרשימת ההשמעה"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+            </Grid>
+        </DataTemplate>
+
+        <ContextMenu x:Key="VideoContextMenu">
+            <MenuItem Header="ניגון / השהיה (רווח)" Click="PlayPause_Click"/>
+            <MenuItem Header="עצור" Click="Stop_Click"/>
+            <MenuItem Header="הבא (N)" Click="Next_Click"/>
+            <MenuItem Header="הקודם (P)" Click="Prev_Click"/>
+            <Separator/>
+            <MenuItem Header="הגבר מהירות ]" Click="SpeedUp_Click"/>
+            <MenuItem Header="הפחת מהירות [" Click="SpeedDown_Click"/>
+            <MenuItem Header="מהירות רגילה (Backspace)" Click="SpeedReset_Click"/>
+            <Separator/>
+            <MenuItem Header="השתק / בטל השתקה (M)" Click="Mute_Click"/>
+            <MenuItem Header="מסך מלא (F)" Click="Fullscreen_Click"/>
+            <MenuItem Header="לולאה על הפריט הנוכחי (L)" IsCheckable="True" Click="Loop_Click"/>
+            <MenuItem Header="תמונה בתוך תמונה (T)" IsCheckable="True" Click="Pip_Click"/>
+            <MenuItem Header="עיבוד תמונה וקול..." Click="PostProcessing_Click"/>
+            <MenuItem Header="מסלול שמע" SubmenuOpened="AudioTracksMenu_SubmenuOpened">
+                <MenuItem Header="טוען..." IsEnabled="False"/>
+            </MenuItem>
+            <MenuItem Header="מסלול וידאו" SubmenuOpened="VideoTracksMenu_SubmenuOpened">
+                <MenuItem Header="טוען..." IsEnabled="False"/>
+            </MenuItem>
+            <Separator/>
+            <MenuItem Header="פתח קובץ... (Ctrl+O)" Click="OpenFile_Click"/>
+            <MenuItem Header="הוסף קבצים לרשימה..." Click="AddFiles_Click"/>
+            <MenuItem Header="הוסף תיקייה לרשימה..." Click="AddFolder_Click"/>
+            <Separator/>
+            <MenuItem Header="טען קובץ כתוביות..." Click="LoadSubtitle_Click"/>
+            <MenuItem Header="ערוך כתוביות... (Ctrl+E)" Click="EditSubtitles_Click"/>
+                        <MenuItem Header="הגדרות כתוביות (גופן, גודל, קידוד)..." Click="SubtitleSettings_Click"/>
+            <MenuItem Header="מסלול כתוביות" SubmenuOpened="SubtitleTracksMenu_SubmenuOpened">
+                <MenuItem Header="טוען..." IsEnabled="False"/>
+            </MenuItem>
+            <MenuItem Header="הצג / הסתר כתוביות (S)" Click="ToggleSubtitles_Click"/>
+            <MenuItem Header="עכב כתוביות ב-100ms (H)" Click="SubDelayUp_Click"/>
+            <MenuItem Header="הקדם כתוביות ב-100ms (G)" Click="SubDelayDown_Click"/>
+            <MenuItem Header="אפס עיכוב כתוביות" Click="SubDelayReset_Click"/>
+            <Separator/>
+            <MenuItem Header="הסר פריט נבחר (Delete)" Click="RemoveSelected_Click"/>
+            <MenuItem Header="נקה רשימה" Click="ClearPlaylist_Click"/>
+            <Separator/>
+            <MenuItem Header="תצוגה">
+                <MenuItem Header="בהיר" Tag="Light" Click="Theme_Click"/>
+                <MenuItem Header="כהה" Tag="Dark" Click="Theme_Click"/>
+                <MenuItem Header="לפי המערכת" Tag="System" Click="Theme_Click"/>
+            </MenuItem>
+            <MenuItem Header="קיצורי מקלדת" Click="Shortcuts_Click"/>
+        </ContextMenu>
+    </Window.Resources>
+
+    <DockPanel>
+        <Menu x:Name="MenuBar" DockPanel.Dock="Top">
+            <MenuItem Header="קובץ">
+                <MenuItem Header="פתח קובץ... (Ctrl+O)" Click="OpenFile_Click"/>
+                <MenuItem Header="הוסף קבצים לרשימה..." Click="AddFiles_Click"/>
+                <MenuItem Header="הוסף תיקייה לרשימה..." Click="AddFolder_Click"/>
+                <Separator/>
+                <MenuItem Header="הגדר כנגן ברירת מחדל..." Click="SetDefaultApp_Click"/>
+                <MenuItem x:Name="AskDefaultMenuItem" Header="הגדר אוטומטית כברירת מחדל בהפעלה"
+                          IsCheckable="True" Click="AskDefault_Click"/>
+                <Separator/>
+                <MenuItem Header="יציאה" Click="Exit_Click"/>
+            </MenuItem>
+            <MenuItem Header="ניגון">
+                <MenuItem Header="ניגון / השהיה (רווח)" Click="PlayPause_Click"/>
+                <MenuItem Header="עצור" Click="Stop_Click"/>
+                <MenuItem Header="הבא (N)" Click="Next_Click"/>
+                <MenuItem Header="הקודם (P)" Click="Prev_Click"/>
+                <Separator/>
+                <MenuItem Header="הגבר מהירות ]" Click="SpeedUp_Click"/>
+                <MenuItem Header="הפחת מהירות [" Click="SpeedDown_Click"/>
+                <MenuItem Header="מהירות רגילה (Backspace)" Click="SpeedReset_Click"/>
+                <Separator/>
+                <MenuItem Header="השתק / בטל השתקה (M)" Click="Mute_Click"/>
+                <MenuItem Header="מסך מלא (F)" Click="Fullscreen_Click"/>
+                <Separator/>
+                <MenuItem Header="לולאה על הפריט הנוכחי (L)" IsCheckable="True" Click="Loop_Click"/>
+                <MenuItem Header="פריים אחורה (,)" Click="FrameBackward_Click"/>
+                <MenuItem Header="פריים קדימה (.)" Click="FrameForward_Click"/>
+                <MenuItem Header="מסלול שמע" SubmenuOpened="AudioTracksMenu_SubmenuOpened">
+                    <MenuItem Header="טוען..." IsEnabled="False"/>
+                </MenuItem>
+                <MenuItem Header="מסלול וידאו" SubmenuOpened="VideoTracksMenu_SubmenuOpened">
+                    <MenuItem Header="טוען..." IsEnabled="False"/>
+                </MenuItem>
+                <MenuItem Header="עיבוד תמונה וקול..." Click="PostProcessing_Click"/>
+                <MenuItem Header="תמונה בתוך תמונה (T)" IsCheckable="True" Click="Pip_Click"/>
+            </MenuItem>
+            <MenuItem Header="כתוביות">
+                <MenuItem Header="טען קובץ כתוביות..." Click="LoadSubtitle_Click"/>
+                <MenuItem Header="ערוך כתוביות... (Ctrl+E)" Click="EditSubtitles_Click"/>
+                            <MenuItem Header="הגדרות כתוביות (גופן, גודל, קידוד)..." Click="SubtitleSettings_Click"/>
+                <MenuItem Header="מסלול כתוביות" SubmenuOpened="SubtitleTracksMenu_SubmenuOpened">
+                    <MenuItem Header="טוען..." IsEnabled="False"/>
+                </MenuItem>
+                <MenuItem Header="הצג / הסתר כתוביות (S)" Click="ToggleSubtitles_Click"/>
+                <Separator/>
+                <MenuItem Header="עכב כתוביות ב-100ms (H)" Click="SubDelayUp_Click"/>
+                <MenuItem Header="הקדם כתוביות ב-100ms (G)" Click="SubDelayDown_Click"/>
+                <MenuItem Header="אפס עיכוב כתוביות" Click="SubDelayReset_Click"/>
+            </MenuItem>
+            <MenuItem Header="רשימת השמעה">
+                <MenuItem Header="הסר פריט נבחר (Delete)" Click="RemoveSelected_Click"/>
+                <MenuItem Header="נקה רשימה" Click="ClearPlaylist_Click"/>
+            </MenuItem>
+            <MenuItem Header="תצוגה">
+                <MenuItem Header="בהיר" Tag="Light" Click="Theme_Click"/>
+                <MenuItem Header="כהה" Tag="Dark" Click="Theme_Click"/>
+                <MenuItem Header="לפי המערכת" Tag="System" Click="Theme_Click"/>
+            </MenuItem>
+            <MenuItem Header="עזרה">
+                <MenuItem Header="קיצורי מקלדת" Click="Shortcuts_Click"/>
+            </MenuItem>
+        </Menu>
+
+        <StackPanel x:Name="ControlsPanel" DockPanel.Dock="Bottom" Margin="6,4">
+            <Slider x:Name="SeekSlider" Minimum="0" Maximum="1000" IsMoveToPointEnabled="True"
+                    ValueChanged="SeekSlider_ValueChanged"
+                    MouseMove="SeekSlider_MouseMove" MouseLeave="SeekSlider_MouseLeave"/>
+            <Grid Margin="0,4,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="TimeText" Grid.Column="0" VerticalAlignment="Center" FontFamily="Consolas"/>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Center">
+                    <Button Content="|◀" Width="44" Margin="0,0,4,0" ToolTip="הקודם (P)" Click="Prev_Click"
+                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                    <Button Width="48" Margin="0,0,4,0" ToolTip="ניגון / השהיה (רווח)" Click="PlayPause_Click"
+                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
+                        <Grid>
+                            <TextBlock x:Name="PlayPauseText" Text="▶"/>
+                            <StackPanel x:Name="PauseBars" Orientation="Horizontal" HorizontalAlignment="Center"
+                                        VerticalAlignment="Center" Visibility="Collapsed">
+                                <Rectangle Width="3" Height="12" Margin="0,0,3,0"
+                                           Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                                <Rectangle Width="3" Height="12"
+                                           Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                            </StackPanel>
+                        </Grid>
+                    </Button>
+                    <Button Content="■" Width="44" Margin="0,0,4,0" ToolTip="עצור" Click="Stop_Click"
+                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                    <Button Content="▶|" Width="44" Margin="0,0,12,0" ToolTip="הבא (N)" Click="Next_Click"
+                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                    <Button x:Name="MuteButton" Content="השתק" Width="96" ToolTip="השתק (M)" Click="Mute_Click" FlowDirection="RightToLeft"
+                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                </StackPanel>
+                <StackPanel x:Name="SpeedPanel" Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                <StackPanel Grid.Column="5" Orientation="Horizontal" HorizontalAlignment="Right" MouseWheel="Volume_MouseWheel">
+                    <TextBlock Text="ווליום" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <Slider x:Name="VolumeSlider" Width="160" Minimum="0" Maximum="200" VerticalAlignment="Center"
+                            IsMoveToPointEnabled="True" ToolTip="0% - 200%" ValueChanged="VolumeSlider_ValueChanged"/>
+                    <TextBlock x:Name="VolumeText" Width="50" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Grid>
+        </StackPanel>
+        <ProgressBar x:Name="ThinProgress" DockPanel.Dock="Bottom" Height="4" Minimum="0" Maximum="1000"
+                     Visibility="Collapsed" Cursor="Hand" MouseLeftButtonDown="ThinProgress_MouseLeftButtonDown"/>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition x:Name="SideSplitterColumn" Width="6"/>
+                <ColumnDefinition x:Name="SidePanelColumn" Width="320" MinWidth="0"/>
+            </Grid.ColumnDefinitions>
+
+            <Grid Grid.Column="0" Background="Black">
+                <vlc:VideoView x:Name="VideoView"/>
+                <TextBlock x:Name="EmptyHint" Text="גרור לכאן קבצי וידאו או השתמש ב-Ctrl+O לפתיחת קובץ" FlowDirection="RightToLeft"
+                           Foreground="Gray" FontSize="16" TextWrapping="Wrap" TextAlignment="Center"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" Margin="20"/>
+                <Popup x:Name="OsdPopup" PlacementTarget="{Binding ElementName=VideoView}" Placement="Custom"
+                       AllowsTransparency="True" PopupAnimation="None" IsOpen="False">
+                    <Border IsHitTestVisible="False" Background="#C0000000" CornerRadius="8" Padding="22,10">
+                        <TextBlock x:Name="OsdText" Foreground="White" FontSize="24" FlowDirection="RightToLeft"/>
+                    </Border>
+                </Popup>
+                <!-- Seekbar preview: a separate window above the native video HWND, like the OSD. -->
+                <Popup x:Name="ThumbPopup" PlacementTarget="{Binding ElementName=SeekSlider}" Placement="Relative"
+                       AllowsTransparency="True" PopupAnimation="None" IsOpen="False">
+                    <Border IsHitTestVisible="False" Background="#E0000000" CornerRadius="6" Padding="6"
+                            BorderBrush="#60808080" BorderThickness="1">
+                        <StackPanel>
+                            <Image x:Name="ThumbImage" Width="192" Height="108" Stretch="Uniform"/>
+                            <TextBlock x:Name="ThumbTimeText" Foreground="White" FontSize="13" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </Border>
+                </Popup>
+            </Grid>
+
+            <GridSplitter x:Name="SideSplitter" Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
+                          Background="#60808080" ResizeBehavior="PreviousAndNext"/>
+
+            <TabControl x:Name="SidePanel" Grid.Column="2" Margin="4">
+                <TabItem Header="סייר קבצים">
+                    <Grid x:Name="ExplorerPanel" Margin="4">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="6"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="סייר קבצים" FontWeight="Bold" Margin="0,0,0,4"/>
+                        <TreeView x:Name="FolderTree" Grid.Row="1" SelectedItemChanged="FolderTree_SelectedItemChanged"/>
+                        <GridSplitter Grid.Row="2" Height="6" HorizontalAlignment="Stretch" ResizeDirection="Rows"
+                                      Background="#60808080"/>
+                        <ListBox x:Name="ExplorerFiles" Grid.Row="3" Margin="0,4,0,4" SelectionMode="Extended"
+                                 ItemTemplate="{StaticResource ExplorerItemTemplate}" MouseDoubleClick="ExplorerFiles_MouseDoubleClick"/>
+                        <Button Grid.Row="4" Content="הוסף לרשימה" Padding="8,3" Click="AddExplorerSelection_Click"
+                                HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                    </Grid>
+                </TabItem>
+                <TabItem Header="רשימת השמעה">
+                    <Grid x:Name="PlaylistPanel" Margin="4">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="רשימת השמעה" FontWeight="Bold" Margin="0,0,0,4"/>
+                        <ListBox x:Name="PlaylistList" Grid.Row="1" SelectionMode="Extended"
+                                 ItemTemplate="{StaticResource PlaylistItemTemplate}" MouseDoubleClick="PlaylistList_MouseDoubleClick"/>
+                        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,4,0,0">
+                            <Button Content="הסר נבחרים" Padding="8,3" Margin="0,0,6,0" Click="RemoveSelected_Click"
+                                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                            <Button Content="נקה" Padding="8,3" Click="ClearPlaylist_Click"
+                                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                        </StackPanel>
+                    </Grid>
+                </TabItem>
+                <TabItem Header="אחרונים">
+                    <Grid Margin="4">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="קבצים אחרונים" FontWeight="Bold" Margin="0,0,0,4"/>
+                        <ListBox x:Name="RecentList" Grid.Row="1" ItemTemplate="{StaticResource RecentItemTemplate}"
+                                 MouseDoubleClick="RecentList_MouseDoubleClick"/>
+                        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,4,0,0">
+                            <Button Content="נקה רשימה" Padding="8,3" Click="ClearRecent_Click"
+                                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                        </StackPanel>
+                    </Grid>
+                </TabItem>
+            </TabControl>
+        </Grid>
+    </DockPanel>
+</Window>
